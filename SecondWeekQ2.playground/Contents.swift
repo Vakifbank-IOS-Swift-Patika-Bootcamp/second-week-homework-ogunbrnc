@@ -43,19 +43,18 @@ class SitterImp: Sitter {
         completion(.success(animal))
     }
     //Sitter assignment to animals added with the constructor and assign function is also done here.
+    //If the animal in animals array has already sitter, we will prevent to add animals array.
     init(name:String? = "Unknown", animals: [Animal]){
         self.id = UUID().uuidString
         self.name = name
-        self.animals = animals
+        self.animals = animals.filter { $0.sitter == nil }
         assignAsSitter()
     }
     
     private func assignAsSitter(){
         animals.indices.forEach {
-            if animals[$0].sitter == nil {
-                animals[$0].sitter = self
-                print("\(self.name!) appointed to \(animals[$0].name!) as sitter.")
-            }
+            animals[$0].sitter = self
+            print("\(self.name!) appointed to \(animals[$0].name!) as sitter.")
         }
     }
     
