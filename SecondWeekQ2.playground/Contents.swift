@@ -182,8 +182,7 @@ class ZooImpl: Zoo {
     //Restriction: If the water limit is not sufficient, new animals cannot be added.
 
     func add(animal: Animal, completion: @escaping (Result<Animal, Error>) -> Void) {
-        let remainingWaterConsumption = waterLimit - animal.waterConsumption
-        guard remainingWaterConsumption >= animal.waterConsumption else {
+        guard waterLimit >= animal.waterConsumption  else {
             completion(.failure(ZooError.notEnoughWater))
             return
         }
@@ -375,7 +374,6 @@ zoo.add(income: 3000.0) { result in
         print(error.localizedDescription)
     }
 }
-
 zoo.increase(water: 30) { result in
     switch result {
     case .success(let waterLimit):
