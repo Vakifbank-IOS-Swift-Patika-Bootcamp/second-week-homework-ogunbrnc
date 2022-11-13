@@ -24,7 +24,6 @@ enum EmployeeType: Int, Equatable {
 }
 
 // Using the ID value, the same employee will not be added again.
-
 protocol Employee: Equatable {
     var id: String { get }
     var name: String { get }
@@ -42,7 +41,7 @@ struct EmployeeImpl: Employee {
     let type: EmployeeType
 
     init(name: String, age: Int, maritalStatus: MaritalStatus?, type: EmployeeType) {
-        id = UUID().uuidString
+        self.id = UUID().uuidString
         self.name = name
         self.age = age
         self.maritalStatus = maritalStatus
@@ -53,10 +52,10 @@ struct EmployeeImpl: Employee {
         10_000 * type.salaryCoefficient + Double(100 * age)
     }
 }
-
+//Employees array is optional, if there are no employees when creating company, empty array will be assigned
 protocol Company {
     var name: String { get }
-    var employees: [any Employee] { get }
+    var employees: [any Employee]? { get }
     var budget: Double { get }
     var foundationYear: Int { get }
 
@@ -90,12 +89,12 @@ extension CompanyError: LocalizedError {
 
 struct CompanyImpl: Company {
     let name: String
-    var employees: [any Employee]
+    var employees: [any Employee]?
     var budget: Double
     let foundationYear: Int
     
     private var totalSalaries: Double {
-        employees.reduce(0) { $0 + $1.salary }
+        employees!.reduce(0) { $0 + $1.salary }
     }
     
     // Restriction: income can not be negative
@@ -128,13 +127,13 @@ struct CompanyImpl: Company {
     
     // Restriction: Same employee can not be added.
     mutating func add(employee: any Employee, completion: @escaping (Result<any Employee, Error>) -> Void) {
-        let contains = employees.contains { $0.id == employee.id }
+        let contains = employees!.contains { $0.id == employee.id }
         guard !contains else {
             let error = CompanyError.employeeExists
             completion(.failure(error))
             return
         }
-        employees.append(employee)
+        employees!.append(employee)
         completion(.success(employee))
     }
     // Restriction: If the total amount of salary to be paid is more than the budget, the payment cannot be made.
@@ -147,6 +146,13 @@ struct CompanyImpl: Company {
         
         budget -= totalSalaries
         completion(.success(budget))
+    }
+    
+    init(name: String, employees: [any Employee]? = [], budget: Double, foundationYear: Int) {
+        self.name = name
+        self.employees = employees
+        self.budget = budget
+        self.foundationYear = foundationYear
     }
 }
 //All the scenarios I can see have been tried below.

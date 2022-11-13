@@ -1,75 +1,38 @@
 import Foundation
 
-//When the sitter is created, the animals array can be empty and then the animal can be assigned with the assign function.
-// Or if there is a previously created animal, it can be assigned with animals array in the sitter initialization.
 protocol Sitter {
     var id: String { get }
-    var name: String? { get }
-    var animals: [any Animal] { get}
+    var name: String { get }
+    var animals: [any Animal]? { get set}
     var salary: Double { get }
-    
-    func assign(animal: inout Animal, completion: @escaping (Result<Animal, Error>) -> Void)
-}
-
-enum SitterError: Error {
-    case hasAlreadySitter
-}
-
-extension SitterError: LocalizedError {
-    var errorDescription: String? {
-        switch self {
-        case .hasAlreadySitter:
-            return "This animal has already a sitter."
-        }
-    }
 }
 
 class SitterImp: Sitter {
     let id: String
-    var name: String?
-    var animals: [Animal]
+    var name: String
+    var animals: [Animal]?
     var salary: Double {
-        Double(animals.count * 750)
+        Double(animals!.count * 750)
     }
     
-    //Sitter assignment to animals added with the assign function is also done here if animal has no sitter.
-    func assign(animal: inout Animal, completion: @escaping (Result<Animal, Error>) -> Void) {
-        guard animal.sitter == nil else {
-            completion(.failure(SitterError.hasAlreadySitter))
-            return
-        }
-        animal.sitter = self
-        animals.append(animal)
-        completion(.success(animal))
-    }
-    //Sitter assignment to animals added with the constructor and assign function is also done here.
-    //If the animal in animals array has already sitter, we will prevent to add animals array.
-    init(name:String? = "Unknown", animals: [Animal]){
+    init(name:String = "Unknown"){
+        self.animals = []
         self.id = UUID().uuidString
         self.name = name
-        self.animals = animals.filter { $0.sitter == nil }
-        assignAsSitter()
     }
-    
-    private func assignAsSitter(){
-        animals.indices.forEach {
-            animals[$0].sitter = self
-            print("\(self.name!) appointed to \(animals[$0].name!) as sitter.")
-        }
-    }
-    
 }
 
 protocol Animal {
-    var name: String? {get}
+    var id: String { get }
+    var name: String {get}
     var waterConsumption: Double { get }
     var sitter: (any Sitter)? { get set}
-    
     func speak()
 }
 
 class Dog: Animal {
-    var name: String?
+    let id: String
+    var name: String
     var waterConsumption: Double
     var sitter: Sitter?
     
@@ -77,13 +40,15 @@ class Dog: Animal {
         print("Woof!!")
     }
     
-    init(name: String? = "Unknown", waterConsumption: Double) {
+    init(name: String  = "Unknown", waterConsumption: Double) {
+        self.id = UUID().uuidString
         self.name = name
         self.waterConsumption = waterConsumption
     }
 }
 class Cat: Animal {
-    var name: String?
+    let id: String
+    var name: String
     var waterConsumption: Double
     var sitter: Sitter?
     
@@ -91,7 +56,8 @@ class Cat: Animal {
         print("Meow!!")
     }
     
-    init(name: String? = "Unknown", waterConsumption: Double) {
+    init(name: String = "Unknown", waterConsumption: Double) {
+        self.id = UUID().uuidString
         self.name = name
         self.waterConsumption = waterConsumption
     }
@@ -111,6 +77,7 @@ protocol Zoo {
     func add(sitter: Sitter,completion: @escaping (Result<Sitter, Error>) -> Void)
     func increase(water amount: Double, completion: @escaping (Result<Double, Error>) -> Void)
     func paySalaries(completion: @escaping (Result<Double, Error>) -> Void)
+    func assign(animal: inout Animal, sitter: inout Sitter, completion: @escaping (Result<(Sitter,Animal), Error>) -> Void)
 
 }
 
@@ -118,9 +85,13 @@ enum ZooError: Error {
     case incomeNotPositive
     case expenseNotPositive
     case notEnoughBudget
+    case sitterNotExists
+    case animalNotExists
+    case animalExists
     case sitterExists
     case limitNotPossitive
     case notEnoughWater
+    case hasAlreadySitter
 }
 
 extension ZooError: LocalizedError {
@@ -132,17 +103,26 @@ extension ZooError: LocalizedError {
             return "Expense amount have to be a positive value."
         case .notEnoughBudget:
             return "Not enough budget to pay."
+        case .animalExists:
+            return "Animal is already added"
+        case .animalNotExists:
+            return "This animal does not live in the zoo."
+        case .sitterNotExists:
+            return "This sitter doesn't work at the zoo."
         case .sitterExists:
             return "Sitter is already added."
         case .limitNotPossitive:
             return "Water limit have to be a positive value."
         case .notEnoughWater:
             return "There is no enough water to add new animal."
+        case .hasAlreadySitter:
+            return "This animal has already sitter"
         }
     }
 }
 
 class ZooImpl: Zoo {
+    
     var waterLimit: Double
     var budget: Double
     var animals: [Animal]
@@ -178,9 +158,16 @@ class ZooImpl: Zoo {
         budget -= amount
         completion(.success(budget))
     }
-    //Restriction: If the water limit is not sufficient, new animals cannot be added.
-
+    
+    //Restriction: If the water limit is not sufficient or animal is already in zoo, new animal cannot be added
     func add(animal: Animal, completion: @escaping (Result<Animal, Error>) -> Void) {
+        let contains = animals.contains { $0.id == animal.id }
+        guard !contains else {
+            let error = ZooError.animalExists
+            completion(.failure(error))
+            return
+        }
+        
         guard waterLimit >= animal.waterConsumption  else {
             completion(.failure(ZooError.notEnoughWater))
             return
@@ -189,7 +176,8 @@ class ZooImpl: Zoo {
         waterLimit -= animal.waterConsumption
         completion(.success(animal))
     }
-    // Restriction: If the budget is not sufficient, new caregivers cannot be added.
+    
+    // Restriction: If the sitter is already added, will not be added again.
     func add(sitter: Sitter,completion: @escaping (Result<Sitter, Error>) -> Void) {
         let contains = sitters.contains { $0.id == sitter.id }
         guard !contains else {
@@ -197,16 +185,11 @@ class ZooImpl: Zoo {
             completion(.failure(error))
             return
         }
-        
-        guard totalSalaries + sitter.salary <= budget else {
-            completion(.failure(ZooError.notEnoughBudget))
-            return
-        }
         sitters.append(sitter)
         completion(.success(sitter))
     }
+    
     //Restriction: water amount can not be negative
-
     func increase(water amount: Double, completion: @escaping (Result<Double, Error>) -> Void) {
         guard amount > 0 else {
             let error = ZooError.limitNotPossitive
@@ -229,6 +212,34 @@ class ZooImpl: Zoo {
         completion(.success(budget))
     }
     
+    // Restriction: if animal doesn't live at the zoo or sitter doesn't work at the zoo or animal has already sitter assignment will not be made
+    func assign(animal: inout Animal, sitter: inout Sitter, completion: @escaping (Result<(Sitter,Animal), Error>) -> Void) {
+        guard animals.contains(where: {$0.id == animal.id}) else {
+            completion(.failure(ZooError.animalNotExists))
+            return
+        }
+        guard sitters.contains(where: {  $0.id == sitter.id}) else {
+            completion(.failure(ZooError.sitterNotExists))
+            return
+        }
+        guard animal.sitter == nil else {
+            completion(.failure(ZooError.hasAlreadySitter))
+            return
+        }
+        animal.sitter = sitter
+        sitter.animals!.append(animal)
+        completion(.success((sitter,animal)))
+    }
+    
+    func prints(){
+        animals.forEach { animal in
+            print(animal.waterConsumption)
+        }
+        sitters.forEach { sitter in
+            print(sitter.salary)
+        }
+    }
+    //If there are animals while the zoo is being created, water limits will be deducted.
     init(waterLimit:Double, budget: Double , animals: [Animal], sitters: [Sitter]){
         self.waterLimit = waterLimit - animals.reduce(0) { $0 + $1.waterConsumption }
         self.budget = budget
@@ -239,108 +250,104 @@ class ZooImpl: Zoo {
 
 //All the scenarios I can see have been tried below.
 
-//Create animal instances.
-var dog1: Animal = Dog(name: "Karabas",waterConsumption: 6)
-var dog2: Animal = Dog(name: "Zeytin", waterConsumption: 6)
-var dog3: Animal = Dog(name: "Pasa", waterConsumption: 6)
-var cat1: Animal = Cat(name: "Boncuk",waterConsumption: 5)
-var cat2: Animal = Cat(name: "Duman", waterConsumption: 5)
-var cat3: Animal = Cat(name: "Limon", waterConsumption: 5)
+var sit1: Sitter = SitterImp(name: "Oguz")
+var sit2: Sitter = SitterImp(name: "Osman")
+var sit3: Sitter = SitterImp(name: "Ogun")
 
-//Create a sitter instance and assign some animals in constructor.
-var sit1 = SitterImp(name: "Ogun", animals: [dog1,dog2])
+var dog1: Animal = Dog(name: "Karabas",waterConsumption: 3)
+var dog2: Animal = Dog(name: "Zeytin", waterConsumption: 3)
+var dog3: Animal = Dog(name: "Pasa", waterConsumption: 10)
 
+var cat1: Animal = Cat(name: "Boncuk",waterConsumption: 2)
+var cat2: Animal = Cat(name: "Duman", waterConsumption: 2)
 
-//Create sitter instances and assign some animals after initialization using add function.
-var sit2 = SitterImp(name: "Oguz" ,animals: [])
-var sit3 = SitterImp(name: "Osman" ,animals: [])
+var zoo = ZooImpl(waterLimit: 15, budget: 3_000, animals: [dog1,cat1], sitters: [sit1])
 
-sit2.assign(animal: &cat1) { result in
-    switch result {
-    case .success(let animal):
-        print("\(sit2.name!) appointed to \(animal.name!) as sitter.")
-    case .failure(let error):
-        print(error.localizedDescription)
-    }
-}
-
-sit2.assign(animal: &cat2) { result in
-    switch result {
-    case .success(let animal):
-        print("\(sit2.name!) appointed to \(animal.name!) as sitter.")
-    case .failure(let error):
-        print(error.localizedDescription)
-    }
-}
-
-//If we try an animal that already has a sitter
-sit2.assign(animal: &cat2) { result in
-    switch result {
-    case .success(let animal):
-        print("\(sit2.name!) appointed to \(animal.name!) as sitter.")
-    case .failure(let error):
-        print(error.localizedDescription)
-    }
-}
-
-sit3.assign(animal: &cat3) { result in
-    switch result {
-    case .success(let animal):
-        print("\(sit2.name!) appointed to \(animal.name!) as sitter.")
-    case .failure(let error):
-        print(error.localizedDescription)
-    }
-}
-cat1.speak()
-dog1.speak()
-
-
-// Create zoo instance, add dog1 and sit1 in constructor.
-var zoo = ZooImpl(waterLimit: 15, budget: 3_000, animals: [dog1], sitters: [sit1])
-
-//We can add add animal and sitter after zoo initialization using add function
-zoo.add(animal: dog2) { result in
-    switch result {
-    case .success(let animal):
-        print("\(animal.name!) added to zoo!!")
-    case .failure(let error):
-        print(error.localizedDescription)
-    }
-}
-
+//Add new sitter to zoo.
 zoo.add(sitter: sit2) { result in
     switch result {
     case .success(let sitter):
-        print("\(sitter.name!) added to zoo!!")
+        print("\(sitter.name) added to zoo!!")
     case .failure(let error):
         print(error.localizedDescription)
     }
 }
 
 //If we try to add same sitter again.
-zoo.add(sitter: sit2) { result in
+zoo.add(sitter: sit1) { result in
     switch result {
     case .success(let sitter):
-        print("\(sitter.name!) added to zoo!!")
+        print("\(sitter.name) added to zoo!!")
     case .failure(let error):
         print(error.localizedDescription)
     }
 }
 
-// If we don't have water to add more animals and we try.
-zoo.add(animal: cat1) { result in
+//Add new animal to zoo.
+zoo.add(animal: dog2) { result in
     switch result {
     case .success(let animal):
-        print("\(animal.name!) added to zoo!!")
+        print("\(animal.name) added to zoo!!")
     case .failure(let error):
         print(error.localizedDescription)
     }
 }
-// If we don't have enough budget to add more sitter.
-zoo.add(sitter: sit3) { result in
+
+//If we try to add same animal again.
+zoo.add(animal: dog2) { result in
     switch result {
-    case .success(let sitter):
-        print("\(sitter.name!) added to zoo!!")
+    case .success(let animal):
+        print("\(animal.name) added to zoo!!")
+    case .failure(let error):
+        print(error.localizedDescription)
+    }
+}
+
+//Assign sitter to animal.
+zoo.assign(animal: &dog1, sitter: &sit1) { result in
+    switch result {
+    case .success((let sitter, let animal)):
+        print("\(sitter.name) assigned to \(animal.name) as sitter")
+    case .failure(let error):
+        print(error.localizedDescription)
+    }
+}
+
+//If we try to assign sitter to animal and animal has already sitter.
+zoo.assign(animal: &dog1, sitter: &sit2) { result in
+    switch result {
+    case .success((let sitter, let animal)):
+        print("\(sitter.name) assigned to \(animal.name) as sitter")
+    case .failure(let error):
+        print(error.localizedDescription)
+    }
+}
+
+//If we try to assign sitter to animal and animal doesn't live in zoo.
+zoo.assign(animal: &dog3, sitter: &sit2) { result in
+    switch result {
+    case .success((let sitter, let animal)):
+        print("\(sitter.name) assigned to \(animal.name) as sitter")
+    case .failure(let error):
+        print(error.localizedDescription)
+    }
+}
+
+//If we try to assign sitter to animal and sitter doesn't work in zoo.
+zoo.assign(animal: &dog2, sitter: &sit3) { result in
+    switch result {
+    case .success((let sitter, let animal)):
+        print("\(sitter.name) assigned to \(animal.name) as sitter")
+    case .failure(let error):
+        print(error.localizedDescription)
+    }
+}
+
+// If we don't have enough water to add more animals and we try.
+zoo.add(animal: dog3) { result in
+    switch result {
+    case .success(let animal):
+        print("\(animal.name) added to zoo!!")
     case .failure(let error):
         print(error.localizedDescription)
     }
@@ -365,6 +372,7 @@ zoo.add(expense: 3000.0) { result in
     }
 }
 
+//Add income.
 zoo.add(income: 3000.0) { result in
     switch result {
     case .success(let budget):
@@ -390,3 +398,31 @@ zoo.paySalaries { result in
         print(error.localizedDescription)
     }
 }
+
+// If we don't have enough money to pay salary
+zoo.add(expense: 5000.0) { result in
+    switch result {
+    case .success(let budget):
+        print("Completed! New budget is \(budget)")
+    case .failure(let error):
+        print(error.localizedDescription)
+    }
+}
+zoo.paySalaries { result in
+    switch result {
+    case .success(let budget):
+        print("Completed! New budget is \(budget)")
+    case .failure(let error):
+        print(error.localizedDescription)
+    }
+}
+
+// Animal is talking..
+
+cat1.speak()
+dog1.speak()
+
+
+
+
+
